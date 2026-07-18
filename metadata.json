@@ -1,0 +1,6 @@
+{
+  "name": "Rivals 3D PvE",
+  "description": "로블록스 라이벌 스타일의 3D 1인칭 PvE 슈팅 게임. 아레나와 전장 맵, 돌격소총과 저격소총, C 슬라이딩, R 장전, 5선승제 라운드 매치 지원.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
