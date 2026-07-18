@@ -312,6 +312,7 @@ export default function ThreeGame({
     }
 
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+    camera.rotation.order = 'YXZ';
     cameraRef.current = camera;
     scene.add(camera); // Add camera to scene to attach lights or models to it
 
@@ -344,8 +345,8 @@ export default function ThreeGame({
 
     // 5. Spawn Enemy Bots (Round depends on score or a set value)
     enemiesRef.current = [];
-    // Spawn 3 enemies for Arena, 4 for Battlefield
-    const botCount = mapType === 'ARENA' ? 3 : 4;
+    // Spawn exactly 1 enemy bot as requested
+    const botCount = 1;
     for (let i = 0; i < botCount; i++) {
       spawnBot(scene, i);
     }
@@ -1389,11 +1390,7 @@ export default function ThreeGame({
     // 7. Update Camera yaw/pitch rotations
     if (cameraRef.current) {
       cameraRef.current.position.copy(state.playerPos);
-      
-      // Reset rotation & apply
-      cameraRef.current.rotation.set(0, 0, 0);
-      cameraRef.current.rotation.y = state.yaw;
-      cameraRef.current.rotation.x = state.pitch;
+      cameraRef.current.rotation.set(state.pitch, state.yaw, 0, 'YXZ');
     }
 
     // 8. Update Bots (AI Move, aim and shoot)

@@ -71,7 +71,7 @@ export default function GameHUD({
 
       {/* 2. Sniper Scope Screen-filling Overlay */}
       {weaponType === 'SNIPER_RIFLE' && aimProgress > 0.95 && (
-        <div className="absolute inset-0 bg-black pointer-events-none z-20 flex items-center justify-center">
+        <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
           {/* Magnified view-port circle */}
           <div 
             className="relative rounded-full aspect-square border-4 border-red-600/80 bg-transparent flex items-center justify-center overflow-hidden shadow-[0_0_50px_rgba(239,68,68,0.3)]"
