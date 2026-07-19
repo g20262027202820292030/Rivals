@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { GameState, MapType, WeaponType } from './types';
+import { GameState, MapType, WeaponType, MeleeWeaponType } from './types';
 import MainMenu from './components/MainMenu';
 import WeaponSelector from './components/WeaponSelector';
+import MeleeWeaponSelector from './components/MeleeWeaponSelector';
 import GameHUD from './components/GameHUD';
 import ThreeGame from './components/ThreeGame';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,12 +10,13 @@ import { Trophy, ShieldAlert, Award, Swords, ArrowRight, RotateCcw } from 'lucid
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>({
-    stage: 'MENU',
-    selectedMap: 'ARENA',
+    stage: 'PLAYING',
+    selectedMap: 'LOBBY',
     playerScore: 0,
     enemyScore: 0,
     currentRound: 1,
-    playerWeapon: null,
+    playerWeapon: 'FIST',
+    playerMeleeWeapon: 'FIST',
     roundWinner: null,
     matchWinner: null,
   });
@@ -33,11 +35,48 @@ export default function App() {
     isSliding: false,
     isSlideCooldown: false,
     primaryWeapon: 'ASSAULT_RIFLE' as WeaponType,
+    grenadeCooldown: 0,
+    grenadeCookTimer: 0,
+    reserveAmmo: 100,
   });
 
   const [isLocked, setIsLocked] = useState(false);
+  const [showMapSelectModal, setShowMapSelectModal] = useState(false);
 
   const startNewGame = (map: MapType) => {
+    setShowMapSelectModal(false);
+    if (map === 'LOBBY') {
+      setGameState({
+        stage: 'PLAYING',
+        selectedMap: 'LOBBY',
+        playerScore: 0,
+        enemyScore: 0,
+        currentRound: 1,
+        playerWeapon: 'FIST',
+        roundWinner: null,
+        matchWinner: null,
+      });
+    } else {
+      setGameState({
+        stage: 'WEAPON_SELECT',
+        selectedMap: map,
+        playerScore: 0,
+        enemyScore: 0,
+        currentRound: 1,
+        playerWeapon: null,
+        roundWinner: null,
+        matchWinner: null,
+      });
+    }
+  };
+
+  const handleStartMatchFromLobby = () => {
+    document.exitPointerLock?.();
+    setShowMapSelectModal(true);
+  };
+
+  const handleMapSelectFromLobby = (map: MapType) => {
+    setShowMapSelectModal(false);
     setGameState({
       stage: 'WEAPON_SELECT',
       selectedMap: map,
@@ -54,6 +93,14 @@ export default function App() {
     setGameState((prev) => ({
       ...prev,
       playerWeapon: weapon,
+      stage: 'MELEE_WEAPON_SELECT',
+    }));
+  };
+
+  const handleMeleeWeaponSelect = (weapon: MeleeWeaponType) => {
+    setGameState((prev) => ({
+      ...prev,
+      playerMeleeWeapon: weapon,
       stage: 'PLAYING',
     }));
   };
@@ -90,13 +137,14 @@ export default function App() {
 
   const handleExitToMenu = () => {
     document.exitPointerLock?.();
+    setShowMapSelectModal(false);
     setGameState({
-      stage: 'MENU',
-      selectedMap: 'ARENA',
+      stage: 'PLAYING',
+      selectedMap: 'LOBBY',
       playerScore: 0,
       enemyScore: 0,
       currentRound: 1,
-      playerWeapon: null,
+      playerWeapon: 'FIST',
       roundWinner: null,
       matchWinner: null,
     });
@@ -120,11 +168,20 @@ export default function App() {
         />
       )}
 
+      {/* Stage: MELEE WEAPON SELECTION OVERLAY */}
+      {gameState.stage === 'MELEE_WEAPON_SELECT' && (
+        <MeleeWeaponSelector
+          round={gameState.currentRound}
+          onSelect={handleMeleeWeaponSelect}
+        />
+      )}
+
       {/* Stage: ACTIVE PLAYING */}
-      {gameState.stage === 'PLAYING' && gameState.playerWeapon && (
+      {gameState.stage === 'PLAYING' && gameState.playerWeapon && gameState.playerMeleeWeapon && (
         <div className="absolute inset-0 w-full h-full">
           <ThreeGame
             mapType={gameState.selectedMap}
+            meleeWeapon={gameState.playerMeleeWeapon || 'FIST'}
             weaponType={gameState.playerWeapon}
             round={gameState.currentRound}
             onRoundComplete={handleRoundComplete}
@@ -137,9 +194,11 @@ export default function App() {
                 playerWeapon: weapon,
               }));
             }}
+            onStartMatch={handleStartMatchFromLobby}
           />
 
           <GameHUD
+            mapType={gameState.selectedMap}
             playerHP={hudStats.playerHP}
             maxHP={150}
             ammo={hudStats.ammo}
@@ -158,10 +217,102 @@ export default function App() {
             isSliding={hudStats.isSliding}
             isSlideCooldown={hudStats.isSlideCooldown}
             isLocked={isLocked}
+            grenadeCooldown={hudStats.grenadeCooldown}
+            grenadeCookTimer={hudStats.grenadeCookTimer}
+            reserveAmmo={hudStats.reserveAmmo}
             onExitGame={handleExitToMenu}
+            onStartMatch={handleStartMatchFromLobby}
           />
         </div>
       )}
+
+      {/* MAP SELECT MODAL (OVER LOBBY) */}
+      <AnimatePresence>
+        {showMapSelectModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md cyber-scanlines"
+          >
+            {/* Cyber Brackets */}
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="-skew-x-[10deg] border-2 border-red-500/50 bg-neutral-950/95 p-8 max-w-4xl w-full mx-6 relative shadow-[0_0_50px_rgba(239,68,68,0.4)] flex flex-col"
+            >
+              <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-red-500" />
+              <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-red-500" />
+              <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-red-500" />
+              <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-red-500" />
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500"></div>
+
+              <div className="skew-x-[10deg] flex flex-col">
+                <div className="text-center mb-6">
+                  <h2 className="text-3xl font-display font-black italic tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-400 uppercase">
+                    전장 선택 / SELECT MAP
+                  </h2>
+                  <p className="text-neutral-400 text-xs font-mono tracking-widest mt-1 uppercase">
+                    CHOOSE YOUR BATTLEGROUND FOR 1V1 MATCH AGAINST THE RIVALS AI
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 my-4">
+                  {/* Option: ARENA */}
+                  <button
+                    onClick={() => handleMapSelectFromLobby('ARENA')}
+                    className="group border border-neutral-800 hover:border-red-500/80 bg-neutral-900/30 hover:bg-red-950/20 p-5 rounded-sm text-left transition-all relative overflow-hidden -skew-x-3 cursor-pointer flex flex-col justify-between h-[210px]"
+                  >
+                    <div className="skew-x-3 flex flex-col justify-between h-full">
+                      <div>
+                        <div className="font-tech font-black italic text-2xl text-white group-hover:text-red-400 transition-colors flex items-center gap-2">
+                          <span className="text-red-500 text-sm">01 //</span> 아레나 (ARENA)
+                        </div>
+                        <p className="text-xs text-neutral-400 mt-2.5 font-sans leading-relaxed">
+                          황금빛 모래와 대리석 기둥, 상자 장애물이 있는 대칭형 원형 아레나입니다. 빠른 몸놀림과 돌격 소총 등의 연사 무기를 활용해 상대를 기습하십시오.
+                        </p>
+                      </div>
+                      <div className="text-[10px] font-mono text-red-500 group-hover:animate-pulse font-bold tracking-widest uppercase mt-4 border-t border-neutral-800 pt-3">
+                        [ 적합: 근접 연사 무기, 샷건, 빠른 돌격 ]
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Option: BATTLEFIELD */}
+                  <button
+                    onClick={() => handleMapSelectFromLobby('BATTLEFIELD')}
+                    className="group border border-neutral-800 hover:border-cyan-500/80 bg-neutral-900/30 hover:bg-cyan-950/20 p-5 rounded-sm text-left transition-all relative overflow-hidden -skew-x-3 cursor-pointer flex flex-col justify-between h-[210px]"
+                  >
+                    <div className="skew-x-3 flex flex-col justify-between h-full">
+                      <div>
+                        <div className="font-tech font-black italic text-2xl text-white group-hover:text-cyan-400 transition-colors flex items-center gap-2">
+                          <span className="text-cyan-500 text-sm">02 //</span> 전장 (BATTLEFIELD)
+                        </div>
+                        <p className="text-xs text-neutral-400 mt-2.5 font-sans leading-relaxed">
+                          전술 방벽과 파괴된 화물 컨테이너, 미로형 통로들이 정교하게 설계된 현대식 군사 기지입니다. 저격 소총을 활용한 원거리 정밀 조준 사격과 엄폐에 특화되어 있습니다.
+                        </p>
+                      </div>
+                      <div className="text-[10px] font-mono text-cyan-400 group-hover:animate-pulse font-bold tracking-widest uppercase mt-4 border-t border-neutral-800 pt-3">
+                        [ 적합: 저격 소총, 엄폐 사격, 원거리 조준 ]
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="flex justify-end gap-4 mt-4">
+                  <button
+                    onClick={() => setShowMapSelectModal(false)}
+                    className="px-6 py-2.5 border border-neutral-800 hover:border-neutral-500 text-neutral-400 hover:text-white -skew-x-6 font-display font-black italic text-xs tracking-widest transition-all cursor-pointer uppercase"
+                  >
+                    <span className="skew-x-6">취소 (CANCEL)</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Stage: INTERMEDIATE ROUND END OVERLAY */}
       <AnimatePresence>

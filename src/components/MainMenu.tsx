@@ -8,7 +8,7 @@ interface MainMenuProps {
 }
 
 export default function MainMenu({ onStartGame }: MainMenuProps) {
-  const [selectedMap, setSelectedMap] = React.useState<MapType>('ARENA');
+  const [selectedMap, setSelectedMap] = React.useState<MapType>('LOBBY');
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(circle_at_center,_rgba(35,12,12,0.8)_0%,_rgba(5,5,5,1)_100%)] text-white p-6 overflow-y-auto select-none font-sans cyber-scanlines">
@@ -61,6 +61,29 @@ export default function MainMenu({ onStartGame }: MainMenuProps) {
             
             <div className="space-y-4">
               
+              {/* Lobby Option */}
+              <button
+                onClick={() => setSelectedMap('LOBBY')}
+                className={`w-full text-left p-4 transition-all border relative overflow-hidden group -skew-x-6 cursor-pointer ${
+                  selectedMap === 'LOBBY'
+                    ? 'bg-red-950/40 border-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.25)]'
+                    : 'bg-neutral-900/30 border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'
+                }`}
+              >
+                <div className="skew-x-6">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 blur-xl rounded-full group-hover:bg-cyan-500/15 transition-all"></div>
+                  <div className="font-tech font-bold text-lg flex items-center justify-between">
+                    <span>로비 (LOBBY - RECOMMENDED)</span>
+                    {selectedMap === 'LOBBY' && (
+                      <span className="text-[10px] font-mono bg-red-600 text-white px-2 py-0.5 tracking-widest uppercase">SELECTED</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-neutral-500 font-sans mt-2 leading-relaxed">
+                    로블록스 Rivals 스타일의 대기 광장. 원기둥 방과 4개 방향 복도가 놓여있습니다. 오른쪽 복도 끝에 있는 단말기 버튼을 통해 AI 대전을 시작할 수 있습니다.
+                  </p>
+                </div>
+              </button>
+
               {/* Arena Option */}
               <button
                 onClick={() => setSelectedMap('ARENA')}

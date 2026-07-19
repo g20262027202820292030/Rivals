@@ -20,36 +20,39 @@ export function playShootSound(isSniper: boolean) {
 
     const now = ctx.currentTime;
     
-    // Noise buffer for realistic gunshot crackle
-    const bufferSize = ctx.sampleRate * (isSniper ? 0.4 : 0.15);
+    // Roblox Rivals-style very punchy, short transient snap
+    const bufferSize = ctx.sampleRate * (isSniper ? 0.3 : 0.15);
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
       data[i] = Math.random() * 2 - 1;
     }
-
     const noise = ctx.createBufferSource();
     noise.buffer = buffer;
 
     const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.setValueAtTime(isSniper ? 300 : 800, now);
-    noiseFilter.Q.setValueAtTime(isSniper ? 1.0 : 2.0, now);
-
+    noiseFilter.type = isSniper ? 'bandpass' : 'highpass';
+    noiseFilter.frequency.setValueAtTime(isSniper ? 300 : 3000, now);
+    if (isSniper) {
+      noiseFilter.Q.setValueAtTime(1.0, now);
+    } else {
+      noiseFilter.Q.setValueAtTime(0.5, now);
+    }
+    
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(isSniper ? 0.8 : 0.4, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + (isSniper ? 0.35 : 0.12));
+    noiseGain.gain.setValueAtTime(isSniper ? 1.5 : 0.7, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + (isSniper ? 0.25 : 0.08));
 
-    // Oscillator for the low-end punch
+    // Thump
     const osc = ctx.createOscillator();
     const oscGain = ctx.createGain();
     
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(isSniper ? 150 : 220, now);
-    osc.frequency.exponentialRampToValueAtTime(isSniper ? 40 : 80, now + (isSniper ? 0.2 : 0.08));
-
-    oscGain.gain.setValueAtTime(isSniper ? 1.0 : 0.6, now);
-    oscGain.gain.exponentialRampToValueAtTime(0.01, now + (isSniper ? 0.25 : 0.08));
+    osc.type = isSniper ? 'sawtooth' : 'triangle';
+    osc.frequency.setValueAtTime(isSniper ? 200 : 300, now);
+    osc.frequency.exponentialRampToValueAtTime(isSniper ? 20 : 50, now + (isSniper ? 0.1 : 0.05));
+    
+    oscGain.gain.setValueAtTime(isSniper ? 2.0 : 1.0, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, now + (isSniper ? 0.2 : 0.1));
 
     // Connections
     noise.connect(noiseFilter);
@@ -62,8 +65,8 @@ export function playShootSound(isSniper: boolean) {
     noise.start(now);
     osc.start(now);
 
-    noise.stop(now + (isSniper ? 0.45 : 0.2));
-    osc.stop(now + (isSniper ? 0.3 : 0.1));
+    noise.stop(now + (isSniper ? 0.3 : 0.15));
+    osc.stop(now + (isSniper ? 0.25 : 0.12));
   } catch (e) {
     console.warn('Audio play failed:', e);
   }
@@ -75,21 +78,28 @@ export function playHitSound() {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Satisfying "ding" sound
-    const osc = ctx.createOscillator();
+    // Roblox Rivals crisp metallic "ding" hitmarker
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1200, now); // high frequency ding
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(1550, now); // Very high crisp pitch
 
-    gainNode.gain.setValueAtTime(0.15, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(1555, now); // Slight detune for metallic chime ring
 
-    osc.connect(gainNode);
+    gainNode.gain.setValueAtTime(0.25, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
     gainNode.connect(ctx.destination);
 
-    osc.start(now);
-    osc.stop(now + 0.1);
+    osc1.start(now);
+    osc2.start(now);
+    osc1.stop(now + 0.07);
+    osc2.stop(now + 0.07);
   } catch (e) {
     // ignore
   }
@@ -101,29 +111,39 @@ export function playKillSound() {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Double-ding high bell sound for kills
+    // Roblox Rivals iconic, extremely satisfying multi-layered arcade kill-ring chime
+    // Starts with a crisp metallic slam followed by a rising shiny chord
     const osc1 = ctx.createOscillator();
     const osc2 = ctx.createOscillator();
+    const osc3 = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
     osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(1000, now);
-    osc1.frequency.setValueAtTime(1400, now + 0.05);
+    osc1.frequency.setValueAtTime(950, now);
+    osc1.frequency.exponentialRampToValueAtTime(1900, now + 0.15);
 
     osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(1500, now);
+    osc2.frequency.setValueAtTime(1200, now);
+    osc2.frequency.exponentialRampToValueAtTime(2400, now + 0.15);
 
-    gainNode.gain.setValueAtTime(0.25, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc3.type = 'sine';
+    osc3.frequency.setValueAtTime(1500, now);
+    osc3.frequency.exponentialRampToValueAtTime(3000, now + 0.2);
+
+    gainNode.gain.setValueAtTime(0.35, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
 
     osc1.connect(gainNode);
     osc2.connect(gainNode);
+    osc3.connect(gainNode);
     gainNode.connect(ctx.destination);
 
     osc1.start(now);
     osc2.start(now);
-    osc1.stop(now + 0.3);
-    osc2.stop(now + 0.3);
+    osc3.start(now);
+    osc1.stop(now + 0.36);
+    osc2.stop(now + 0.36);
+    osc3.stop(now + 0.36);
   } catch (e) {
     // ignore
   }
@@ -135,29 +155,45 @@ export function playReloadSound() {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // First mechanical click (e.g. magazine out)
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'triangle';
-    osc1.frequency.setValueAtTime(180, now);
-    gain1.gain.setValueAtTime(0.1, now);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(now);
-    osc1.stop(now + 0.06);
+    // Simulate mechanical metallic clanks for reload
+    // Mag Out
+    const magOut = ctx.createOscillator();
+    const outGain = ctx.createGain();
+    magOut.type = 'square';
+    magOut.frequency.setValueAtTime(300, now);
+    magOut.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+    outGain.gain.setValueAtTime(0.5, now);
+    outGain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+    magOut.connect(outGain);
+    outGain.connect(ctx.destination);
+    magOut.start(now);
+    magOut.stop(now + 0.15);
 
-    // Second mechanical click (e.g. magazine in)
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(250, now + 0.25);
-    gain2.gain.setValueAtTime(0.1, now + 0.25);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(now + 0.25);
-    osc2.stop(now + 0.32);
+    // Mag In (Click)
+    const magIn = ctx.createOscillator();
+    const inGain = ctx.createGain();
+    magIn.type = 'sawtooth';
+    magIn.frequency.setValueAtTime(400, now + 0.4);
+    magIn.frequency.exponentialRampToValueAtTime(200, now + 0.5);
+    inGain.gain.setValueAtTime(0.8, now + 0.4);
+    inGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+    magIn.connect(inGain);
+    inGain.connect(ctx.destination);
+    magIn.start(now + 0.4);
+    magIn.stop(now + 0.55);
+
+    // Bolt pull
+    const bolt = ctx.createOscillator();
+    const boltGain = ctx.createGain();
+    bolt.type = 'square';
+    bolt.frequency.setValueAtTime(600, now + 0.8);
+    bolt.frequency.exponentialRampToValueAtTime(800, now + 0.9);
+    boltGain.gain.setValueAtTime(0.7, now + 0.8);
+    boltGain.gain.exponentialRampToValueAtTime(0.01, now + 0.9);
+    bolt.connect(boltGain);
+    boltGain.connect(ctx.destination);
+    bolt.start(now + 0.8);
+    bolt.stop(now + 0.95);
   } catch (e) {
     // ignore
   }
