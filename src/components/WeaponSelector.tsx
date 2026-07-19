@@ -48,6 +48,22 @@ export default function WeaponSelector({ round, playerScore, enemyScore, onSelec
       accentColor: 'text-cyan-400',
       icon: <Eye className="w-5 h-5 text-cyan-400 filter drop-shadow-[0_0_3px_rgba(6,182,212,0.5)]" />,
     },
+    {
+      type: 'RPG' as WeaponType,
+      config: WEAPON_CONFIGS.RPG,
+      desc: '강력한 폭발 피해를 입히는 로켓 발사기입니다. 직격 시 100, 스플래시로 50의 데미지를 줍니다.',
+      stats: [
+        { label: '화력 (DAMAGE)', val: '100 / 50', bar: 1.0 },
+        { label: '탄 소지한도 (CAPACITY)', val: '1발 (Single)', bar: 0.1 },
+        { label: '정조준 속도 (ADS)', val: '0.4초', bar: 1 - 0.4 / 1.5 },
+        { label: '기동성 (MOBILITY)', val: '-15%', bar: 0.3 },
+      ],
+      color: 'from-purple-500 to-fuchsia-600',
+      glowColor: 'rgba(168, 85, 247, 0.45)',
+      badgeColor: 'bg-purple-950/40 text-purple-400 border-purple-500/30',
+      accentColor: 'text-purple-400',
+      icon: <Zap className="w-5 h-5 text-purple-400 filter drop-shadow-[0_0_3px_rgba(168,85,247,0.5)]" />,
+    },
   ];
 
   return (
@@ -88,7 +104,7 @@ export default function WeaponSelector({ round, playerScore, enemyScore, onSelec
       </motion.div>
 
       {/* Weapon Cards Grid */}
-      <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch z-10">
+      <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch z-10">
         {configs.map((item, idx) => {
           const isHovered = hoveredWeapon === item.type;
           return (

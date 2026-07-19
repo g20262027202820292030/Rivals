@@ -9,6 +9,7 @@ import {
   playSlideSound,
   playJumpSound,
   playHurtSound,
+  playFistSwingSound,
 } from '../utils/audio';
 
 interface ThreeGameProps {
@@ -30,7 +31,9 @@ interface ThreeGameProps {
     damageFlashActive: boolean;
     isSliding: boolean;
     isSlideCooldown: boolean;
+    primaryWeapon: WeaponType;
   }) => void;
+  onWeaponChange?: (weapon: WeaponType) => void;
 }
 
 interface FloatingText {
@@ -69,9 +72,17 @@ export default function ThreeGame({
   isLocked,
   setIsLocked,
   updateHUD,
+  onWeaponChange,
 }: ThreeGameProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Keep track of primary weapon on mount, and dynamic weapon callback
+  const primaryWeaponRef = useRef<WeaponType>(weaponType);
+  const onWeaponChangeRef = useRef(onWeaponChange);
+  useEffect(() => {
+    onWeaponChangeRef.current = onWeaponChange;
+  }, [onWeaponChange]);
 
   // States for React-rendered elements (like floating damage numbers)
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
@@ -118,6 +129,7 @@ export default function ThreeGame({
 
     // Round logic
     roundEnded: false,
+    jumpCount: 0,
   });
 
   // Track keyboard inputs
@@ -133,6 +145,14 @@ export default function ThreeGame({
   const obstaclesRef = useRef<Obstacle[]>([]);
   const tracersRef = useRef<{ line: THREE.Line; age: number; maxAge: number }[]>([]);
   const particlesRef = useRef<{ system: THREE.Points; velocities: number[]; age: number; maxAge: number }[]>([]);
+  const rocketsRef = useRef<{
+    mesh: THREE.Mesh;
+    direction: THREE.Vector3;
+    speed: number;
+    damage: number;
+    splashDamage: number;
+    splashRadius: number;
+  }[]>([]);
 
   // Update weapon config when prop changes
   useEffect(() => {
@@ -143,6 +163,11 @@ export default function ThreeGame({
     stateRef.current.isReloading = false;
     stateRef.current.isAiming = false;
     stateRef.current.aimProgress = 0;
+    
+    // Remember the chosen primary weapon (must not be FIST)
+    if (weaponType !== 'FIST') {
+      primaryWeaponRef.current = weaponType;
+    }
     
     // Re-create gun model
     if (sceneRef.current && cameraRef.current) {
@@ -180,6 +205,19 @@ export default function ThreeGame({
     barrier: new THREE.MeshStandardMaterial({ color: 0x4f4f4f, roughness: 0.9 }),
     glowingRed: new THREE.MeshBasicMaterial({ color: 0xff0000 }),
     neonYellow: new THREE.MeshBasicMaterial({ color: 0xffff00 }),
+    
+    // Roblox Rivals Symmetrical Map Materials
+    plasticWhite: new THREE.MeshStandardMaterial({ color: 0xf0f0f3, roughness: 0.4, metalness: 0.1 }),
+    plasticDark: new THREE.MeshStandardMaterial({ color: 0x1e222b, roughness: 0.5, metalness: 0.15 }),
+    rivalsRed: new THREE.MeshStandardMaterial({ color: 0xff3b30, roughness: 0.3, metalness: 0.1 }),
+    rivalsBlue: new THREE.MeshStandardMaterial({ color: 0x007aff, roughness: 0.3, metalness: 0.1 }),
+    rivalsOrange: new THREE.MeshStandardMaterial({ color: 0xff9500, roughness: 0.4, metalness: 0.1 }),
+    neonRed: new THREE.MeshBasicMaterial({ color: 0xff3b30 }),
+    neonBlue: new THREE.MeshBasicMaterial({ color: 0x00a8ff }),
+    neonGreen: new THREE.MeshBasicMaterial({ color: 0x34c759 }),
+    neonYellowBasic: new THREE.MeshBasicMaterial({ color: 0xffcc00 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x00d2ff, roughness: 0.1, metalness: 0.9, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+    neonCyan: new THREE.MeshBasicMaterial({ color: 0x00f5ff }),
   };
 
   // Build static gun model & attach to camera
@@ -192,10 +230,39 @@ export default function ThreeGame({
     }
 
     const gunGroup = new THREE.Group();
-    const isSniper = weaponType === 'SNIPER_RIFLE';
+    const currentWeaponType = stateRef.current.weaponType;
+    const isSniper = currentWeaponType === 'SNIPER_RIFLE';
+    const isFist = currentWeaponType === 'FIST';
 
-    // Construct gun out of multiple boxes/cylinders for a retro look
-    if (isSniper) {
+    // Construct gun or fist out of multiple boxes/cylinders for a retro look
+    if (isFist) {
+      // Melee: Fist
+      // Arm forearm (sleeve)
+      const armGeo = new THREE.BoxGeometry(0.08, 0.08, 0.25);
+      const armMat = new THREE.MeshStandardMaterial({ color: 0x485460, roughness: 0.5 });
+      const arm = new THREE.Mesh(armGeo, armMat);
+      arm.position.set(0, -0.05, -0.15);
+      gunGroup.add(arm);
+
+      // Glove / Hand box
+      const handGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+      const handMat = new THREE.MeshStandardMaterial({ color: 0xfbc531, roughness: 0.4 }); // yellow/orange robotic hand glove
+      const hand = new THREE.Mesh(handGeo, handMat);
+      hand.position.set(0, -0.05, -0.28);
+      gunGroup.add(hand);
+
+      // Knuckle glow (red / orange)
+      const knuckleGeo = new THREE.BoxGeometry(0.08, 0.02, 0.02);
+      const knuckle = new THREE.Mesh(knuckleGeo, materials.glowingRed);
+      knuckle.position.set(0, -0.01, -0.33);
+      gunGroup.add(knuckle);
+
+      // Muzzle locator (not really used for shooting bullets, but good as a raycast start/flash location)
+      const muzzle = new THREE.Object3D();
+      muzzle.position.set(0, -0.05, -0.35);
+      gunGroup.add(muzzle);
+      gunMuzzleRef.current = muzzle;
+    } else if (isSniper) {
       // Sniper rifle
       // Main body (dark metal)
       const bodyGeo = new THREE.BoxGeometry(0.06, 0.08, 0.6);
@@ -238,7 +305,7 @@ export default function ThreeGame({
       muzzle.position.set(0, 0.01, -1.1);
       gunGroup.add(muzzle);
       gunMuzzleRef.current = muzzle;
-    } else {
+    } else if (currentWeaponType === 'ASSAULT_RIFLE') {
       // Assault Rifle
       // Main body (dark tactical carbon/grey)
       const bodyGeo = new THREE.BoxGeometry(0.06, 0.1, 0.4);
@@ -281,6 +348,44 @@ export default function ThreeGame({
       muzzle.position.set(0, 0.015, -0.6);
       gunGroup.add(muzzle);
       gunMuzzleRef.current = muzzle;
+    } else if (currentWeaponType === 'RPG') {
+      // RPG tube (olive drab / green)
+      const tubeGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8, 12);
+      const tubeMat = new THREE.MeshStandardMaterial({ color: 0x4a5d23, roughness: 0.6 });
+      const tube = new THREE.Mesh(tubeGeo, tubeMat);
+      tube.rotation.x = Math.PI / 2;
+      tube.position.set(0, 0, -0.2);
+      gunGroup.add(tube);
+
+      // Rocket warhead sticking out front
+      const warheadGeo = new THREE.CylinderGeometry(0.06, 0.02, 0.2, 12);
+      const warheadMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.3 });
+      const warhead = new THREE.Mesh(warheadGeo, warheadMat);
+      warhead.rotation.x = Math.PI / 2;
+      warhead.position.set(0, 0, -0.7);
+      gunGroup.add(warhead);
+      
+      // Red tip
+      const tipGeo = new THREE.ConeGeometry(0.02, 0.05, 12);
+      const tipMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const tip = new THREE.Mesh(tipGeo, tipMat);
+      tip.rotation.x = -Math.PI / 2;
+      tip.position.set(0, 0, -0.825);
+      gunGroup.add(tip);
+
+      // Handle/Grip
+      const gripGeo = new THREE.BoxGeometry(0.02, 0.15, 0.04);
+      const gripMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 }); // Wood grip
+      const grip = new THREE.Mesh(gripGeo, gripMat);
+      grip.position.set(0, -0.1, -0.1);
+      grip.rotation.x = -0.2;
+      gunGroup.add(grip);
+      
+      // Muzzle locator
+      const muzzle = new THREE.Object3D();
+      muzzle.position.set(0, 0, -0.85);
+      gunGroup.add(muzzle);
+      gunMuzzleRef.current = muzzle;
     }
 
     // Default rest position (off to the bottom-right)
@@ -295,6 +400,27 @@ export default function ThreeGame({
     const container = containerRef.current;
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
+
+    // Reset player state for the start of the round/map
+    const state = stateRef.current;
+    state.playerHP = 150;
+    state.maxHP = 150;
+    state.ammo = WEAPON_CONFIGS[weaponType].maxAmmo;
+    state.maxAmmo = WEAPON_CONFIGS[weaponType].maxAmmo;
+    state.isReloading = false;
+    state.isAiming = false;
+    state.aimProgress = 0;
+    state.roundEnded = false;
+    state.playerVelocity.set(0, 0, 0);
+    state.pitch = 0;
+    state.yaw = 0; // facing north (towards negative z)
+
+    // Set map-specific spawn position
+    if (mapType === 'ARENA') {
+      state.playerPos.set(0, 1.6, 25);
+    } else {
+      state.playerPos.set(0, 1.6, 35);
+    }
 
     const width = container.clientWidth;
     const height = container.clientHeight;
@@ -338,6 +464,7 @@ export default function ThreeGame({
 
     // 3. Generate Map Geometry & Obstacles
     obstaclesRef.current = [];
+    rocketsRef.current = [];
     generateMap(scene, mapType);
 
     // 4. Create Gun Model
@@ -367,8 +494,22 @@ export default function ThreeGame({
       }
 
       // Handle Jump trigger
-      if (key === ' ' || key === 'q') {
+      if ((key === ' ' || key === 'q') && !e.repeat) {
         triggerJump();
+      }
+
+      // 1: Switch to primary weapon
+      if (key === '1') {
+        if (onWeaponChangeRef.current) {
+          onWeaponChangeRef.current(primaryWeaponRef.current);
+        }
+      }
+
+      // 3: Switch to fist (melee)
+      if (key === '3') {
+        if (onWeaponChangeRef.current) {
+          onWeaponChangeRef.current('FIST');
+        }
       }
     };
 
@@ -477,127 +618,396 @@ export default function ThreeGame({
     };
   }, [mapType, round]);
 
-  // Generates maps procedurally using static colors/geometries
+  // Generates maps procedurally using static colors/geometries matching Roblox Rivals aesthetic
   const generateMap = (scene: THREE.Scene, type: MapType) => {
     if (type === 'ARENA') {
-      // 1. Sand Arena Floor (Circle)
+      // --- 1. ROBLOX RIVALS SYMMETRICAL ARENA ---
+      // Clean modern white plastic floor
       const floorGeo = new THREE.CylinderGeometry(40, 40, 1, 64);
-      const floor = new THREE.Mesh(floorGeo, materials.sand);
+      const floor = new THREE.Mesh(floorGeo, materials.plasticWhite);
       floor.position.set(0, -0.5, 0);
       floor.receiveShadow = true;
       scene.add(floor);
 
-      // Add a collidable border
-      addCircularBorder(scene, 40, 8, materials.concrete);
+      // Clean tech grid helper overlaid on the floor
+      const grid = new THREE.GridHelper(80, 40, 0x888888, 0xdddddd);
+      grid.position.set(0, 0.01, 0);
+      scene.add(grid);
 
-      // 2. Pillars (Marble cylinders)
-      const pillarCount = 6;
-      for (let i = 0; i < pillarCount; i++) {
-        const angle = (i / pillarCount) * Math.PI * 2;
-        const radius = 22;
-        const px = Math.cos(angle) * radius;
-        const pz = Math.sin(angle) * radius;
+      // Symmetrical Outer Boundary with Neon strips
+      addCircularBorder(scene, 40, 10, materials.plasticDark);
 
-        // Base
-        const baseGeo = new THREE.BoxGeometry(4, 1.5, 4);
-        const base = new THREE.Mesh(baseGeo, materials.pillarBase);
-        base.position.set(px, 0.75, pz);
-        base.castShadow = true;
-        base.receiveShadow = true;
-        scene.add(base);
-        addObstacle(baseGeo, base);
+      // Add Neon strips around the outer perimeter (glowing Red on south, Blue on north)
+      const neonSegmentCount = 32;
+      const neonGeo = new THREE.BoxGeometry(2 * Math.PI * 39.8 / neonSegmentCount + 0.2, 0.2, 0.2);
+      for (let i = 0; i < neonSegmentCount; i++) {
+        const angle = (i / neonSegmentCount) * Math.PI * 2;
+        const x = Math.cos(angle) * 39.8;
+        const z = Math.sin(angle) * 39.8;
 
-        // Shaft
-        const shaftGeo = new THREE.CylinderGeometry(1.2, 1.2, 12, 16);
-        const shaft = new THREE.Mesh(shaftGeo, materials.marble);
-        shaft.position.set(px, 7.5, pz);
-        shaft.castShadow = true;
-        shaft.receiveShadow = true;
-        scene.add(shaft);
-        addObstacle(shaftGeo, shaft);
+        const neonMat = z > 0 ? materials.neonRed : materials.neonBlue;
+        const strip = new THREE.Mesh(neonGeo, neonMat);
+        strip.position.set(x, 9.8, z);
+        strip.rotation.y = -angle;
+        scene.add(strip);
       }
 
-      // 3. Wooden Cover boxes scattered
-      const boxes = [
-        { size: [3, 3, 3], pos: [0, 1.5, -10] },
-        { size: [2, 2, 4], pos: [-12, 1, 5], rot: 0.5 },
-        { size: [4, 2, 2], pos: [12, 1, -4], rot: -0.3 },
-        { size: [2.5, 2.5, 2.5], pos: [-6, 1.25, -16] },
-        { size: [3, 2, 3], pos: [8, 1, 14], rot: 0.8 },
-        { size: [2, 4, 2], pos: [-14, 2, -10] },
-        { size: [3, 1.5, 2], pos: [15, 0.75, 12], rot: -0.2 },
+      // --- CENTRAL ELEVATED GLASS BRIDGE ---
+      // Transparent blue glass bridge platform that players can walk under and stand on top of
+      const bridgeGeo = new THREE.BoxGeometry(6, 0.4, 14);
+      const bridgeMesh = new THREE.Mesh(bridgeGeo, materials.glass);
+      bridgeMesh.position.set(0, 3.0, 0);
+      bridgeMesh.castShadow = true;
+      bridgeMesh.receiveShadow = true;
+      scene.add(bridgeMesh);
+      addObstacle(bridgeGeo, bridgeMesh);
+
+      // Glowing Neon Green edges on the glass bridge sides
+      const trimGeoL = new THREE.BoxGeometry(0.1, 0.45, 14);
+      const trimL = new THREE.Mesh(trimGeoL, materials.neonGreen);
+      trimL.position.set(-3.05, 3.0, 0);
+      scene.add(trimL);
+
+      const trimR = new THREE.Mesh(trimGeoL, materials.neonGreen);
+      trimR.position.set(3.05, 3.0, 0);
+      scene.add(trimR);
+
+      // Semi-transparent side handrails on the glass bridge
+      const railGeo = new THREE.BoxGeometry(0.15, 1.0, 14);
+      const railL = new THREE.Mesh(railGeo, materials.glass);
+      railL.position.set(-2.9, 3.7, 0);
+      scene.add(railL);
+      addObstacle(railGeo, railL);
+
+      const railR = new THREE.Mesh(railGeo, materials.glass);
+      railR.position.set(2.9, 3.7, 0);
+      scene.add(railR);
+      addObstacle(railGeo, railR);
+
+      // Glowing neon cyan top trim on handrails
+      const topTrimGeo = new THREE.BoxGeometry(0.2, 0.1, 14);
+      const topTrimL = new THREE.Mesh(topTrimGeo, materials.neonCyan);
+      topTrimL.position.set(-2.9, 4.25, 0);
+      scene.add(topTrimL);
+
+      const topTrimR = new THREE.Mesh(topTrimGeo, materials.neonCyan);
+      topTrimR.position.set(2.9, 4.25, 0);
+      scene.add(topTrimR);
+
+      // --- SYMMETRICAL ACCESS STAIRS / RAMPS (BLOCKY ROBLOX STYLE) ---
+      // South Side (Red theme stairs going up to bridge from Z = 13 to Z = 7)
+      const redStairSpecs = [
+        { size: [6, 1.0, 2], pos: [0, 0.5, 12], mat: materials.plasticDark, neon: materials.neonRed },
+        { size: [6, 2.0, 2], pos: [0, 1.5, 10], mat: materials.plasticDark, neon: materials.neonRed },
+        { size: [6, 3.0, 2], pos: [0, 2.5, 8], mat: materials.plasticDark, neon: materials.neonRed },
+      ];
+      redStairSpecs.forEach(({ size, pos, mat, neon }) => {
+        const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(pos[0], pos[1], pos[2]);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        addObstacle(geo, mesh);
+
+        // Neon warning stripe on step edge
+        const stripeGeo = new THREE.BoxGeometry(size[0] + 0.05, 0.1, 0.1);
+        const stripe = new THREE.Mesh(stripeGeo, neon);
+        stripe.position.set(pos[0], pos[1] + size[1]/2, pos[2] - size[2]/2 + 0.05);
+        scene.add(stripe);
+      });
+
+      // North Side (Blue theme stairs going up to bridge from Z = -13 to Z = -7)
+      const blueStairSpecs = [
+        { size: [6, 1.0, 2], pos: [0, 0.5, -12], mat: materials.plasticDark, neon: materials.neonBlue },
+        { size: [6, 2.0, 2], pos: [0, 1.5, -10], mat: materials.plasticDark, neon: materials.neonBlue },
+        { size: [6, 3.0, 2], pos: [0, 2.5, -8], mat: materials.plasticDark, neon: materials.neonBlue },
+      ];
+      blueStairSpecs.forEach(({ size, pos, mat, neon }) => {
+        const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(pos[0], pos[1], pos[2]);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        addObstacle(geo, mesh);
+
+        // Neon warning stripe on step edge
+        const stripeGeo = new THREE.BoxGeometry(size[0] + 0.05, 0.1, 0.1);
+        const stripe = new THREE.Mesh(stripeGeo, neon);
+        stripe.position.set(pos[0], pos[1] + size[1]/2, pos[2] + size[2]/2 - 0.05);
+        scene.add(stripe);
+      });
+
+      // --- Left & Right Symmetrical Side Pillars ---
+      const pillarGeo = new THREE.BoxGeometry(3, 8, 3);
+      const sidePillars = [
+        { pos: [-14, 4, 6], mat: materials.rivalsRed, neon: materials.neonRed },
+        { pos: [14, 4, 6], mat: materials.rivalsRed, neon: materials.neonRed },
+        { pos: [-14, 4, -6], mat: materials.rivalsBlue, neon: materials.neonBlue },
+        { pos: [14, 4, -6], mat: materials.rivalsBlue, neon: materials.neonBlue },
       ];
 
-      boxes.forEach(({ size, pos, rot }) => {
+      sidePillars.forEach(({ pos, mat, neon }) => {
+        const pillar = new THREE.Mesh(pillarGeo, mat);
+        pillar.position.set(pos[0], pos[1], pos[2]);
+        pillar.castShadow = true;
+        pillar.receiveShadow = true;
+        scene.add(pillar);
+        addObstacle(pillarGeo, pillar);
+
+        // Add glowing neon accent band on each side pillar
+        const bandGeo = new THREE.BoxGeometry(3.15, 0.3, 3.15);
+        const band = new THREE.Mesh(bandGeo, neon);
+        band.position.set(pos[0], pos[1] + 1.5, pos[2]);
+        scene.add(band);
+      });
+
+      // --- Symmetrical Tactical Crates / Covers ---
+      const crates = [
+        // South Side (Player - Red style)
+        { size: [3, 3, 3], pos: [-7, 1.5, 17], mat: materials.rivalsRed, neon: materials.neonRed },
+        { size: [2, 2, 2], pos: [7, 1, 18], mat: materials.rivalsRed, neon: materials.neonRed },
+        { size: [3, 2, 3], pos: [11, 1, 12], mat: materials.rivalsRed, neon: materials.neonRed, rot: 0.4 },
+        { size: [2.5, 2.5, 2.5], pos: [-11, 1.25, 22], mat: materials.rivalsRed, neon: materials.neonRed, rot: -0.2 },
+
+        // North Side (Enemy - Blue style)
+        { size: [3, 3, 3], pos: [7, 1.5, -17], mat: materials.rivalsBlue, neon: materials.neonBlue },
+        { size: [2, 2, 2], pos: [-7, 1, -18], mat: materials.rivalsBlue, neon: materials.neonBlue },
+        { size: [3, 2, 3], pos: [-11, 1, -12], mat: materials.rivalsBlue, neon: materials.neonBlue, rot: 0.4 },
+        { size: [2.5, 2.5, 2.5], pos: [11, 1.25, -22], mat: materials.rivalsBlue, neon: materials.neonBlue, rot: -0.2 },
+      ];
+
+      crates.forEach(({ size, pos, mat, neon, rot }) => {
         const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
-        const box = new THREE.Mesh(geo, materials.woodBox);
+        const box = new THREE.Mesh(geo, mat);
         box.position.set(pos[0], pos[1], pos[2]);
         if (rot) box.rotation.y = rot;
         box.castShadow = true;
         box.receiveShadow = true;
         scene.add(box);
         addObstacle(geo, box);
+
+        // Glowing trim at top edge of each crate
+        const trimGeo = new THREE.BoxGeometry(size[0] + 0.1, 0.15, size[2] + 0.1);
+        const trim = new THREE.Mesh(trimGeo, neon);
+        trim.position.set(pos[0], pos[1] + size[1]/2, pos[2]);
+        if (rot) trim.rotation.y = rot;
+        scene.add(trim);
       });
 
+      // Spawn Portal Arches with glowing team forcefields
+      // South Spawn (Player)
+      const southPortalFrameGeo = new THREE.BoxGeometry(10, 6, 1.5);
+      const southPortal = new THREE.Mesh(southPortalFrameGeo, materials.plasticDark);
+      southPortal.position.set(0, 3, 34);
+      scene.add(southPortal);
+      addObstacle(southPortalFrameGeo, southPortal);
+
+      const southForcefieldGeo = new THREE.BoxGeometry(8, 5, 0.1);
+      const southForcefield = new THREE.Mesh(southForcefieldGeo, materials.neonRed);
+      southForcefield.position.set(0, 2.5, 33.9);
+      scene.add(southForcefield);
+
+      // North Spawn (Enemy)
+      const northPortalFrameGeo = new THREE.BoxGeometry(10, 6, 1.5);
+      const northPortal = new THREE.Mesh(northPortalFrameGeo, materials.plasticDark);
+      northPortal.position.set(0, 3, -34);
+      scene.add(northPortal);
+      addObstacle(northPortalFrameGeo, northPortal);
+
+      const northForcefieldGeo = new THREE.BoxGeometry(8, 5, 0.1);
+      const northForcefield = new THREE.Mesh(northForcefieldGeo, materials.neonBlue);
+      northForcefield.position.set(0, 2.5, -33.9);
+      scene.add(northForcefield);
+
     } else {
-      // BATTLEFIELD Map
-      // 1. Concrete ground plane
+      // --- 2. ROBLOX RIVALS CONTAINER BATTLEFIELD ---
+      // Tech-styled steel/dark plastic ground plane
       const floorGeo = new THREE.BoxGeometry(100, 1, 100);
-      const floor = new THREE.Mesh(floorGeo, materials.concrete);
+      const floor = new THREE.Mesh(floorGeo, materials.plasticDark);
       floor.position.set(0, -0.5, 0);
       floor.receiveShadow = true;
       scene.add(floor);
 
-      // Simple grid helper on floor to feel 3D
-      const grid = new THREE.GridHelper(100, 50, 0x4f4f4f, 0x222222);
+      // Neon-cyan grid on dark floor
+      const grid = new THREE.GridHelper(100, 50, 0x00f5ff, 0x1f2430);
       grid.position.set(0, 0.01, 0);
       scene.add(grid);
 
-      // Boundary Walls (4 tall walls)
-      const borderGeoX = new THREE.BoxGeometry(100, 10, 1);
-      const borderGeoZ = new THREE.BoxGeometry(1, 10, 100);
+      // Boundary Walls with hazard safety stripes
+      const borderGeoX = new THREE.BoxGeometry(100, 14, 1.5);
+      const borderGeoZ = new THREE.BoxGeometry(1.5, 14, 100);
 
       const walls = [
-        { geo: borderGeoX, pos: [0, 5, 50] },
-        { geo: borderGeoX, pos: [0, 5, -50] },
-        { geo: borderGeoZ, pos: [50, 5, 0] },
-        { geo: borderGeoZ, pos: [-50, 5, 0] },
+        { geo: borderGeoX, pos: [0, 7, 50] },
+        { geo: borderGeoX, pos: [0, 7, -50] },
+        { geo: borderGeoZ, pos: [50, 7, 0] },
+        { geo: borderGeoZ, pos: [-50, 7, 0] },
       ];
 
       walls.forEach(({ geo, pos }) => {
-        const wall = new THREE.Mesh(geo, materials.barrier);
+        const wall = new THREE.Mesh(geo, materials.plasticDark);
         wall.position.set(pos[0], pos[1], pos[2]);
         wall.receiveShadow = true;
         scene.add(wall);
         addObstacle(geo, wall);
+
+        // Add bottom safety warning trim
+        const hazardGeo = pos[0] === 0 
+          ? new THREE.BoxGeometry(100, 1.2, 1.6) 
+          : new THREE.BoxGeometry(1.6, 1.2, 100);
+        const hazardMesh = new THREE.Mesh(hazardGeo, materials.rivalsOrange);
+        hazardMesh.position.set(pos[0], 0.6, pos[2]);
+        scene.add(hazardMesh);
       });
 
-      // 2. Ruined military-style concrete barricades
+      // Helper function to build detailed solid containers
+      const createContainerMesh = (size: number[], pos: number[], mat: THREE.Material, rot?: number) => {
+        const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
+        const containerMesh = new THREE.Mesh(geo, mat);
+        containerMesh.position.set(pos[0], pos[1], pos[2]);
+        if (rot) containerMesh.rotation.y = rot;
+        containerMesh.castShadow = true;
+        containerMesh.receiveShadow = true;
+        scene.add(containerMesh);
+        addObstacle(geo, containerMesh);
+
+        // Corrugated details on the containers (vertical ridges)
+        const ridgesCount = 6;
+        const ridgeWidth = 0.2;
+        const ridgeGeo = new THREE.BoxGeometry(ridgeWidth, size[1], size[2] + 0.15);
+        for (let i = 0; i < ridgesCount; i++) {
+          const rx = -size[0]/2 + (size[0] / (ridgesCount - 1)) * i;
+          const ridge = new THREE.Mesh(ridgeGeo, mat);
+          ridge.position.set(rx, 0, 0);
+          containerMesh.add(ridge);
+        }
+      };
+
+      // Helper function to build OPEN shipping containers players can run through
+      const createOpenContainer = (pos: number[], mat: THREE.Material, rot?: number) => {
+        // Aligned along Z. Width 5, Height 4, Length 12.
+        const leftWallGeo = new THREE.BoxGeometry(0.2, 4, 12);
+        const rightWallGeo = new THREE.BoxGeometry(0.2, 4, 12);
+        const ceilingGeo = new THREE.BoxGeometry(5.2, 0.2, 12);
+
+        // Left wall
+        const leftWall = new THREE.Mesh(leftWallGeo, mat);
+        leftWall.position.set(pos[0] - 2.5, pos[1], pos[2]);
+        leftWall.castShadow = true;
+        leftWall.receiveShadow = true;
+        scene.add(leftWall);
+        addObstacle(leftWallGeo, leftWall);
+
+        // Right wall
+        const rightWall = new THREE.Mesh(rightWallGeo, mat);
+        rightWall.position.set(pos[0] + 2.5, pos[1], pos[2]);
+        rightWall.castShadow = true;
+        rightWall.receiveShadow = true;
+        scene.add(rightWall);
+        addObstacle(rightWallGeo, rightWall);
+
+        // Ceiling
+        const ceiling = new THREE.Mesh(ceilingGeo, mat);
+        ceiling.position.set(pos[0], pos[1] + 2.0, pos[2]);
+        ceiling.castShadow = true;
+        ceiling.receiveShadow = true;
+        scene.add(ceiling);
+        addObstacle(ceilingGeo, ceiling);
+      };
+
+      // --- HIGH VERTICAL CONTAINER TOWERS (CLIMBABLE/JUMPABLE ON TOP) ---
+      // Red Side Container Stack Tower (Left)
+      createContainerMesh([12, 4, 5], [-20, 2, 20], materials.rivalsRed);
+      createContainerMesh([12, 4, 5], [-20, 6, 20], materials.rivalsRed);
+      createContainerMesh([12, 4, 5], [-20, 10, 20], materials.rivalsRed);
+
+      // Blue Side Container Stack Tower (Right)
+      createContainerMesh([12, 4, 5], [20, 2, -20], materials.rivalsBlue);
+      createContainerMesh([12, 4, 5], [20, 6, -20], materials.rivalsBlue);
+      createContainerMesh([12, 4, 5], [20, 10, -20], materials.rivalsBlue);
+
+      // Angled Ground Containers for cover
+      createContainerMesh([12, 4, 5], [18, 2, 25], materials.rivalsRed, 0.5);
+      createContainerMesh([12, 4, 5], [-18, 2, -25], materials.rivalsBlue, 0.5);
+
+      // Far Back Stacked Containers
+      createContainerMesh([12, 4, 5], [-30, 2, 38], materials.rivalsRed, -0.2);
+      createContainerMesh([12, 4, 5], [-30, 6, 38], materials.rivalsRed, -0.2);
+
+      createContainerMesh([12, 4, 5], [30, 2, -38], materials.rivalsBlue, -0.2);
+      createContainerMesh([12, 4, 5], [30, 6, -38], materials.rivalsBlue, -0.2);
+
+      // --- CENTRAL CONFLICT ZONE CONTAINERS (MIDDLE LANES) ---
+      // Stacked neutral orange containers in center lane
+      createContainerMesh([12, 4, 5], [-12, 2, 0], materials.rivalsOrange, 0.8);
+      createContainerMesh([12, 4, 5], [-12, 6, 0], materials.rivalsOrange, 0.8); // double stack center-left
+
+      createContainerMesh([12, 4, 5], [12, 2, 0], materials.rivalsOrange, -0.8);
+      createContainerMesh([12, 4, 5], [12, 6, 0], materials.rivalsOrange, -0.8); // double stack center-right
+
+      // --- OPEN WALKTHROUGH SHIPPING CONTAINERS (ROBLOX RIVALS STYLE) ---
+      // Red Side Open Tunnel (Left Lane)
+      createOpenContainer([-16, 2, 5], materials.rivalsRed);
+
+      // Blue Side Open Tunnel (Right Lane)
+      createOpenContainer([16, 2, -5], materials.rivalsBlue);
+
+      // --- Concrete Barricades / Sandbags ---
       const barricades = [
-        { size: [8, 2.5, 1.5], pos: [0, 1.25, 0] },
-        { size: [6, 2.5, 1.5], pos: [-15, 1.25, 15], rot: Math.PI / 4 },
-        { size: [6, 2.5, 1.5], pos: [15, 1.25, -15], rot: Math.PI / 4 },
-        { size: [12, 3, 2], pos: [-20, 1.5, -20], rot: -Math.PI / 6 },
-        { size: [12, 3, 2], pos: [20, 1.5, 20], rot: -Math.PI / 6 },
-        // Container block covers
-        { size: [5, 4, 10], pos: [-30, 2, 5], rot: 0.1 },
-        { size: [5, 4, 10], pos: [30, 2, -5], rot: -0.1 },
-        // Small sandbag piles
-        { size: [3, 1.2, 1.2], pos: [10, 0.6, 10], rot: 0.3 },
-        { size: [3, 1.2, 1.2], pos: [-10, 0.6, -10], rot: -0.3 },
-        { size: [4, 1.2, 1.2], pos: [0, 0.6, 25] },
-        { size: [4, 1.2, 1.2], pos: [0, 0.6, -25] },
+        { size: [6, 2, 1.5], pos: [0, 1, 10], mat: materials.concrete },
+        { size: [6, 2, 1.5], pos: [0, 1, -10], mat: materials.concrete },
+        { size: [5, 2, 1.5], pos: [-32, 1, 10], mat: materials.concrete, rot: 0.3 },
+        { size: [5, 2, 1.5], pos: [32, 1, -10], mat: materials.concrete, rot: 0.3 },
+        { size: [4, 1.5, 4], pos: [35, 0.75, 18], mat: materials.plasticDark },
+        { size: [4, 1.5, 4], pos: [-35, 0.75, -18], mat: materials.plasticDark },
       ];
 
-      barricades.forEach(({ size, pos, rot }) => {
+      barricades.forEach(({ size, pos, mat, rot }) => {
         const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
-        const mesh = new THREE.Mesh(geo, materials.rustyMetal);
+        const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(pos[0], pos[1], pos[2]);
         if (rot) mesh.rotation.y = rot;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         scene.add(mesh);
         addObstacle(geo, mesh);
+
+        // Add safety warning yellow/orange stripes to concrete barricades
+        const stripeGeo = new THREE.BoxGeometry(size[0] + 0.1, 0.2, size[2] + 0.1);
+        const stripe = new THREE.Mesh(stripeGeo, materials.rivalsOrange);
+        stripe.position.set(pos[0], pos[1] - 0.2, pos[2]);
+        if (rot) stripe.rotation.y = rot;
+        scene.add(stripe);
+      });
+
+      // Tall Light Poles with Spotlights
+      const poleGeo = new THREE.CylinderGeometry(0.2, 0.2, 16, 8);
+      const bulbGeo = new THREE.SphereGeometry(0.8, 16, 16);
+      const polePositions = [
+        [-38, 8, 0],
+        [38, 8, 0]
+      ];
+
+      polePositions.forEach((pos) => {
+        // Pole mesh
+        const pole = new THREE.Mesh(poleGeo, materials.plasticDark);
+        pole.position.set(pos[0], pos[1], pos[2]);
+        scene.add(pole);
+
+        // Bulb mesh
+        const bulb = new THREE.Mesh(bulbGeo, materials.neonYellowBasic);
+        bulb.position.set(pos[0], pos[1] + 8, pos[2]);
+        scene.add(bulb);
+
+        // SpotLight pointing to the center of the arena
+        const spotLight = new THREE.SpotLight(0xfff5cc, 3.0, 50, Math.PI/3, 0.5, 1);
+        spotLight.position.set(pos[0], pos[1] + 8, pos[2]);
+        spotLight.target.position.set(0, 0, 0);
+        spotLight.castShadow = true;
+        scene.add(spotLight);
+        scene.add(spotLight.target);
       });
     }
   };
@@ -621,6 +1031,8 @@ export default function ThreeGame({
   };
 
   const addObstacle = (geo: THREE.BufferGeometry, mesh: THREE.Mesh) => {
+    mesh.updateMatrix();
+    mesh.updateMatrixWorld(true);
     geo.computeBoundingBox();
     if (geo.boundingBox) {
       const box = new THREE.Box3();
@@ -632,11 +1044,9 @@ export default function ThreeGame({
   // Humanoid robotic dummy bot spawn
   const spawnBot = (scene: THREE.Scene, index: number) => {
     const isArena = mapType === 'ARENA';
-    const radius = isArena ? 25 : 35;
-    // Spawn around in a circle relative to center, but opposite to player
-    const angle = ((index + 1) / (isArena ? 4 : 5)) * Math.PI * 1.5 + Math.PI / 4;
-    const x = Math.cos(angle) * radius;
-    const z = Math.sin(angle) * radius;
+    // Symmetrical spawn: bot spawns on the north side (negative Z)
+    const x = index === 0 ? 0 : (index % 2 === 0 ? 12 : -12);
+    const z = isArena ? -25 : -35;
 
     const botGroup = new THREE.Group();
     botGroup.position.set(x, 0, z);
@@ -705,8 +1115,8 @@ export default function ThreeGame({
 
     enemiesRef.current.push({
       mesh: botGroup,
-      hp: 100,
-      maxHp: 100,
+      hp: 150,
+      maxHp: 150,
       velocity: new THREE.Vector3(),
       lastShotTime: performance.now() + Math.random() * 2000, // randomized delay on first shot
       shootInterval: isArena ? 1600 : 2000, // slightly slower shots in open field
@@ -739,6 +1149,205 @@ export default function ThreeGame({
 
     floatingTextsRef.current = [...floatingTextsRef.current, newFloat];
     setFloatingTexts(floatingTextsRef.current);
+  };
+
+  // Rocket Explosion Particles
+  const createExplosionParticles = (pos: THREE.Vector3) => {
+    if (!sceneRef.current) return;
+
+    // Red-orange fire explosion particles (35 particles)
+    const count = 35;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const velocities: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = pos.x;
+      positions[i * 3 + 1] = pos.y;
+      positions[i * 3 + 2] = pos.z;
+
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos((Math.random() * 2) - 1);
+      const speed = 4 + Math.random() * 10;
+
+      velocities.push(
+        Math.sin(phi) * Math.cos(theta) * speed,
+        Math.cos(phi) * speed + 3, // slightly upward biased
+        Math.sin(phi) * Math.sin(theta) * speed
+      );
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const material = new THREE.PointsMaterial({
+      color: 0xff4400, // Fiery orange-red
+      size: 0.4, // Large size
+      transparent: true,
+      opacity: 1.0,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const system = new THREE.Points(geometry, material);
+    sceneRef.current.add(system);
+
+    particlesRef.current.push({
+      system,
+      velocities,
+      age: 0,
+      maxAge: 0.8,
+    });
+
+    // Yellow shockwave spark particles (20 particles)
+    const yellowCount = 20;
+    const yellowGeo = new THREE.BufferGeometry();
+    const yellowPos = new Float32Array(yellowCount * 3);
+    const yellowVel: number[] = [];
+
+    for (let i = 0; i < yellowCount; i++) {
+      yellowPos[i * 3] = pos.x;
+      yellowPos[i * 3 + 1] = pos.y;
+      yellowPos[i * 3 + 2] = pos.z;
+
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos((Math.random() * 2) - 1);
+      const speed = 3 + Math.random() * 7;
+
+      yellowVel.push(
+        Math.sin(phi) * Math.cos(theta) * speed,
+        Math.cos(phi) * speed + 2,
+        Math.sin(phi) * Math.sin(theta) * speed
+      );
+    }
+
+    yellowGeo.setAttribute('position', new THREE.BufferAttribute(yellowPos, 3));
+    const yellowMat = new THREE.PointsMaterial({
+      color: 0xffcc00, // Bright yellow
+      size: 0.25,
+      transparent: true,
+      opacity: 1.0,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const yellowSystem = new THREE.Points(yellowGeo, yellowMat);
+    sceneRef.current.add(yellowSystem);
+
+    particlesRef.current.push({
+      system: yellowSystem,
+      velocities: yellowVel,
+      age: 0,
+      maxAge: 0.6,
+    });
+  };
+
+  // Rocket explosion impact and area-of-effect damage logic
+  const triggerRocketExplosion = (hitPoint: THREE.Vector3, hitBotIndex: number | null) => {
+    const state = stateRef.current;
+    if (!sceneRef.current) return;
+
+    // 1. Spawning big rocket explosion particles
+    createExplosionParticles(hitPoint);
+    createExplosionParticles(hitPoint.clone().add(new THREE.Vector3(0, 1.0, 0)));
+    createExplosionParticles(hitPoint.clone().add(new THREE.Vector3(1.0, 0, 0)));
+    createExplosionParticles(hitPoint.clone().add(new THREE.Vector3(-1.0, 0, 0)));
+    createExplosionParticles(hitPoint.clone().add(new THREE.Vector3(0, 0, 1.0)));
+    createExplosionParticles(hitPoint.clone().add(new THREE.Vector3(0, 0, -1.0)));
+
+    // Spawn secondary debris a bit later
+    for (let k = 0; k < 3; k++) {
+      setTimeout(() => {
+        if (sceneRef.current) {
+          const offset = new THREE.Vector3(
+            (Math.random() - 0.5) * 3,
+            Math.random() * 2,
+            (Math.random() - 0.5) * 3
+          );
+          createExplosionParticles(hitPoint.clone().add(offset));
+        }
+      }, 50 + k * 40);
+    }
+
+    playHitSound();
+
+    // 1b. Check if Player is within the explosion radius (8.0 units) to launch/jump them!
+    const distToPlayer = state.playerPos.distanceTo(hitPoint);
+    if (distToPlayer < 8.0) {
+      // Launch player! Give upward velocity proportional to proximity
+      const launchPower = 11.0 + (1 - distToPlayer / 8.0) * 8.0; // 11 to 19 units vertical launch
+      state.playerVelocity.y = launchPower;
+      state.isGrounded = false;
+
+      // Add a nice horizontal knockback blast force to player
+      const pushDir = state.playerPos.clone().sub(hitPoint);
+      pushDir.y = 0;
+      if (pushDir.lengthSq() > 0.01) {
+        pushDir.normalize();
+        const horizPush = 12.0 * (1 - distToPlayer / 8.0);
+        state.playerVelocity.x += pushDir.x * horizPush;
+        state.playerVelocity.z += pushDir.z * horizPush;
+      }
+    }
+
+    // 2. Splash and Direct damage for all bots within splashRadius (8.0 units!)
+    enemiesRef.current.forEach((bot, bIdx) => {
+      if (bot.hp <= 0) return;
+
+      const distToExplosion = bot.mesh.position.distanceTo(hitPoint);
+      let dmgToApply = 0;
+      let isDirect = false;
+
+      if (bIdx === hitBotIndex) {
+        dmgToApply = 100; // Direct hit
+        isDirect = true;
+      } else if (distToExplosion < 8.0) {
+        // Splash damage (any bot within 8 units gets 50 damage!)
+        dmgToApply = 50;
+      }
+
+      // Launch bots within the 8.0 unit explosion radius!
+      if (distToExplosion < 8.0 || bIdx === hitBotIndex) {
+        const launchY = 11.0 + (1 - Math.min(8.0, distToExplosion) / 8.0) * 8.0;
+        bot.velocity.y = launchY;
+
+        // Push bot horizontally away from explosion center
+        const pushDir = bot.mesh.position.clone().sub(hitPoint);
+        pushDir.y = 0;
+        if (pushDir.lengthSq() > 0.01) {
+          pushDir.normalize();
+          const horizPush = 10.0 * (1 - Math.min(8.0, distToExplosion) / 8.0);
+          bot.velocity.x = pushDir.x * horizPush;
+          bot.velocity.z = pushDir.z * horizPush;
+        }
+      }
+
+      if (dmgToApply > 0) {
+        bot.hp -= dmgToApply;
+        state.hitActive = true;
+        state.hitTimer = 0.12;
+
+        addFloatingDamage(`${dmgToApply}!`, bot.mesh.position.clone().add(new THREE.Vector3(0, bot.height, 0)), isDirect);
+
+        // Bot flash red damage animation
+        bot.mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            const originalColor = child.material.color.clone();
+            child.material.color.setHex(0xff0000);
+            setTimeout(() => {
+              if (child && child.material) child.material.color.copy(originalColor);
+            }, 150);
+          }
+        });
+
+        // Check Bot Death
+        if (bot.hp <= 0) {
+          playKillSound();
+          addFloatingDamage('KILLED', bot.mesh.position.clone().add(new THREE.Vector3(0, bot.height + 0.5, 0)), true);
+          bot.mesh.position.y = -5; // hide
+          if (sceneRef.current) sceneRef.current.remove(bot.mesh);
+        }
+      }
+    });
+
+    checkRoundOutcome();
   };
 
   // Gun firing particle sparks
@@ -787,9 +1396,20 @@ export default function ThreeGame({
   // Jump Action
   const triggerJump = () => {
     const state = stateRef.current;
-    if (state.isGrounded && !state.isReloading && !state.roundEnded) {
-      state.playerVelocity.y = 7.0; // Jump impulse
+    if (state.isReloading || state.roundEnded) return;
+
+    if (state.isGrounded) {
+      let jumpPower = 7.475; // 6.5 * 1.15
+      if (state.isSliding) {
+        jumpPower = 8.97; // 7.475 * 1.2
+      }
+      state.playerVelocity.y = jumpPower; // Jump impulse
       state.isGrounded = false;
+      state.jumpCount = 1;
+      playJumpSound();
+    } else if (state.weaponType === 'FIST' && state.jumpCount < 2) {
+      state.playerVelocity.y = 7.475; // Double jump impulse
+      state.jumpCount = 2;
       playJumpSound();
     }
   };
@@ -818,9 +1438,10 @@ export default function ThreeGame({
 
       state.slideDirection.copy(dir);
 
-      // Slide height
-      state.playerHeight = 0.8; // half eye height (crouching)
-      state.playerPos.y = 0.8;
+      // Slide height: adjust height and smoothly lower playerPos Y to stay grounded without teleporting to absolute ground (0.8)
+      const heightDiff = state.playerHeight - 0.8;
+      state.playerHeight = 0.8;
+      state.playerPos.y = Math.max(0.8, state.playerPos.y - heightDiff);
     }
   };
 
@@ -830,7 +1451,7 @@ export default function ThreeGame({
     if (!state.isReloading && state.ammo < state.maxAmmo && !state.roundEnded) {
       state.isReloading = true;
       state.reloadProgress = 0;
-      state.reloadTimer = WEAPON_CONFIGS[weaponType].reloadTime;
+      state.reloadTimer = WEAPON_CONFIGS[state.weaponType].reloadTime;
       state.isAiming = false; // exit ADS to reload
       playReloadSound();
     }
@@ -840,19 +1461,22 @@ export default function ThreeGame({
   const shootWeapon = () => {
     const state = stateRef.current;
     const now = performance.now();
-    const config = WEAPON_CONFIGS[weaponType];
+    const currentWeaponType = state.weaponType;
+    const config = WEAPON_CONFIGS[currentWeaponType];
 
     if (now - state.lastShotTime < config.fireRate) return;
     if (state.isReloading) return;
 
-    if (state.ammo <= 0) {
+    if (currentWeaponType !== 'FIST' && state.ammo <= 0) {
       // Empty clip click / auto reload
       triggerReload();
       return;
     }
 
     state.lastShotTime = now;
-    state.ammo--;
+    if (currentWeaponType !== 'FIST') {
+      state.ammo--;
+    }
 
     // 1. Calculate accuracy/spread
     // Hip spread: AR = 2 deg, Sniper = 10 deg
@@ -877,17 +1501,67 @@ export default function ThreeGame({
     shootDir.normalize();
 
     // 2. Play sound
-    playShootSound(weaponType === 'SNIPER_RIFLE');
+    if (currentWeaponType === 'FIST') {
+      playFistSwingSound();
+    } else {
+      playShootSound(currentWeaponType === 'SNIPER_RIFLE');
+    }
 
-    // 3. Gun Recoil Sway / Bolt action kick
+    // 3. Gun Recoil Sway / Bolt action kick / Fist punch forward
     if (gunGroupRef.current) {
-      gunGroupRef.current.position.z += 0.12; // kick backward
-      gunGroupRef.current.position.y += 0.05; // kick upward
+      if (currentWeaponType === 'FIST') {
+        gunGroupRef.current.position.z -= 0.25; // punch forward!
+      } else {
+        gunGroupRef.current.position.z += 0.12; // kick backward
+        gunGroupRef.current.position.y += 0.05; // kick upward
+      }
     }
 
     // Exit zoom if sniper rifle after shot (1 shot untoggles ADS)
-    if (weaponType === 'SNIPER_RIFLE') {
+    if (currentWeaponType === 'SNIPER_RIFLE') {
       state.isAiming = false;
+    }
+
+    // RPG slow projectile logic
+    if (currentWeaponType === 'RPG') {
+      const startPos = new THREE.Vector3();
+      if (gunMuzzleRef.current) {
+        gunMuzzleRef.current.getWorldPosition(startPos);
+      } else {
+        startPos.copy(state.playerPos).addScaledVector(shootDir, 0.5);
+      }
+
+      const rocketGroup = new THREE.Group();
+      rocketGroup.position.copy(startPos);
+      rocketGroup.lookAt(startPos.clone().add(shootDir));
+
+      // Rocket cylinder body
+      const bodyGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.4, 8);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4a5d23, roughness: 0.5 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.rotation.x = Math.PI / 2;
+      rocketGroup.add(body);
+
+      // Tip cone
+      const tipGeo = new THREE.ConeGeometry(0.1, 0.18, 8);
+      const tipMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
+      const tip = new THREE.Mesh(tipGeo, tipMat);
+      tip.rotation.x = Math.PI / 2;
+      tip.position.set(0, 0, 0.29);
+      rocketGroup.add(tip);
+
+      if (sceneRef.current) {
+        sceneRef.current.add(rocketGroup);
+        rocketsRef.current.push({
+          mesh: rocketGroup as any,
+          direction: shootDir.clone(),
+          speed: 30.0, // Slow visible rocket speed
+          damage: 100,
+          splashDamage: 50,
+          splashRadius: 8.0,
+        });
+      }
+      return; // Skip raycast hit detection
     }
 
     // 4. Raycasting for hit detection
@@ -907,13 +1581,22 @@ export default function ThreeGame({
       }
     }
 
-    // B. Check enemy bots bounding spheres / hitboxes
+    // B. Check Ground Plane (y = 0)
+    if (shootDir.y < 0) {
+      const distToGround = -state.playerPos.y / shootDir.y;
+      if (distToGround > 0 && distToGround < closestDist) {
+        closestDist = distToGround;
+        hitPoint.copy(state.playerPos).addScaledVector(shootDir, distToGround);
+        hitObject = 'GROUND';
+      }
+    }
+
+    // C. Check enemy bots bounding spheres / hitboxes
     let hitBotIndex: number | null = null;
     enemiesRef.current.forEach((bot, bIdx) => {
       if (bot.hp <= 0) return;
 
       // Simple cylinder ray intersect (precise enough for FPS)
-      const botCenter = bot.mesh.position.clone().add(new THREE.Vector3(0, bot.height / 2, 0));
       const intersects = raycaster.intersectObject(bot.mesh, true);
 
       if (intersects.length > 0) {
@@ -927,8 +1610,15 @@ export default function ThreeGame({
       }
     });
 
+    // Enforce melee weapon distance constraint
+    const maxRange = currentWeaponType === 'FIST' ? 3.5 : 100;
+    if (closestDist > maxRange) {
+      hitObject = null;
+      hitBotIndex = null;
+    }
+
     // 5. Spawn Tracer line
-    if (sceneRef.current && gunMuzzleRef.current) {
+    if (sceneRef.current && gunMuzzleRef.current && currentWeaponType !== 'FIST') {
       const muzzleWorldPos = new THREE.Vector3();
       gunMuzzleRef.current.getWorldPosition(muzzleWorldPos);
 
@@ -936,7 +1626,7 @@ export default function ThreeGame({
       const points = [muzzleWorldPos, hitPoint];
       const tracerGeo = new THREE.BufferGeometry().setFromPoints(points);
       const tracerMat = new THREE.LineBasicMaterial({
-        color: weaponType === 'SNIPER_RIFLE' ? 0x00ffff : 0xffaa00,
+        color: currentWeaponType === 'SNIPER_RIFLE' ? 0x00ffff : 0xffaa00,
         linewidth: 2,
         transparent: true,
         opacity: 0.9,
@@ -947,19 +1637,31 @@ export default function ThreeGame({
       tracersRef.current.push({
         line: tracerLine,
         age: 0,
-        maxAge: 0.12, // extremely fast fade
+        maxAge: 0.12,
       });
     }
 
-    // 6. Handle hit outcomes
+    // 6. Handle hit outcomes (Standard Weapons)
     if (hitObject === 'BOT' && hitBotIndex !== null) {
       const bot = enemiesRef.current[hitBotIndex];
-      const damage = config.damage;
-      
-      // Randomly critical hits (2x damage)
-      const isCrit = Math.random() < 0.25;
-      const finalDamage = isCrit ? damage * 2 : damage;
+      let damage = config.damage;
+      let isCrit = false;
 
+      // Headshot / Crit logic
+      if (currentWeaponType === 'ASSAULT_RIFLE' || currentWeaponType === 'SNIPER_RIFLE') {
+        const botTop = bot.mesh.position.y + bot.height;
+        // Headshot threshold: top 0.4 units of the bot
+        if (hitPoint.y >= botTop - 0.4) {
+          isCrit = true;
+          damage = damage * (currentWeaponType === 'SNIPER_RIFLE' ? 2 : 2.5); // 100% crit chance if headshot
+        }
+      } else {
+        // FIST random crits
+        isCrit = Math.random() < 0.25;
+        if (isCrit) damage *= 2;
+      }
+
+      const finalDamage = damage;
       bot.hp -= finalDamage;
 
       // Trigger visual & sound feedback
@@ -1125,36 +1827,70 @@ export default function ThreeGame({
         }
       }
 
-      // Move toward target position
-      const dir = bot.targetPos.clone().sub(bot.mesh.position);
-      dir.y = 0;
-      const dist = dir.length();
+      // 1. Gravity and velocity physics for bots (jumping / launching)
+      const isGrounded = bot.mesh.position.y <= 0.05;
 
-      if (dist > 1) {
-        dir.normalize();
-        const speed = bot.state === 'CHASE' ? 3.5 : 2.0;
-        bot.mesh.position.addScaledVector(dir, speed * delta);
+      if (!isGrounded || bot.velocity.y !== 0) {
+        // Apply gravity
+        bot.velocity.y -= 19.8 * delta;
+        bot.mesh.position.y += bot.velocity.y * delta;
 
-        // Tilt/sway limbs slightly when moving for Roblox style feel
-        const swing = Math.sin(performance.now() * 0.01) * 0.4;
-        bot.mesh.children[4].rotation.x = swing; // L arm
-        bot.mesh.children[5].rotation.x = -swing; // R arm
-        bot.mesh.children[7].rotation.x = -swing; // L leg
-        bot.mesh.children[8].rotation.x = swing; // R leg
+        // Apply horizontal knockback velocity
+        bot.mesh.position.x += bot.velocity.x * delta;
+        bot.mesh.position.z += bot.velocity.z * delta;
+
+        // Decay horizontal knockback velocities
+        bot.velocity.x *= Math.max(0, 1 - 3 * delta);
+        bot.velocity.z *= Math.max(0, 1 - 3 * delta);
+
+        if (bot.mesh.position.y <= 0) {
+          bot.mesh.position.y = 0;
+          bot.velocity.set(0, 0, 0);
+        }
+      }
+
+      // Move toward target position (only if grounded)
+      if (isGrounded) {
+        const dir = bot.targetPos.clone().sub(bot.mesh.position);
+        dir.y = 0;
+        const dist = dir.length();
+
+        if (dist > 1) {
+          dir.normalize();
+          const speed = bot.state === 'CHASE' ? 3.5 : 2.0;
+          bot.mesh.position.addScaledVector(dir, speed * delta);
+
+          // Tilt/sway limbs slightly when moving for Roblox style feel
+          const swing = Math.sin(performance.now() * 0.01) * 0.4;
+          bot.mesh.children[4].rotation.x = swing; // L arm
+          bot.mesh.children[5].rotation.x = -swing; // R arm
+          bot.mesh.children[7].rotation.x = -swing; // L leg
+          bot.mesh.children[8].rotation.x = swing; // R leg
+        } else {
+          // Reset limb tilts
+          bot.mesh.children[4].rotation.x = 0;
+          bot.mesh.children[5].rotation.x = 0;
+          bot.mesh.children[7].rotation.x = 0;
+          bot.mesh.children[8].rotation.x = 0;
+        }
       } else {
-        // Reset limb tilts
-        bot.mesh.children[4].rotation.x = 0;
-        bot.mesh.children[5].rotation.x = 0;
-        bot.mesh.children[7].rotation.x = 0;
-        bot.mesh.children[8].rotation.x = 0;
+        // Flail limbs in the air when knocked back!
+        const flail = Math.sin(performance.now() * 0.02) * 0.6;
+        bot.mesh.children[4].rotation.x = flail;
+        bot.mesh.children[5].rotation.x = -flail;
+        bot.mesh.children[7].rotation.x = -flail;
+        bot.mesh.children[8].rotation.x = flail;
       }
 
       // Check obstacle boundaries for bots (circular for arena, box for battlefield)
       if (mapType === 'ARENA') {
-        const rad = bot.mesh.position.length();
+        const rad = Math.sqrt(bot.mesh.position.x * bot.mesh.position.x + bot.mesh.position.z * bot.mesh.position.z);
         if (rad > 38.5) {
-          bot.mesh.position.normalize().multiplyScalar(38.5);
+          bot.mesh.position.x = (bot.mesh.position.x / rad) * 38.5;
+          bot.mesh.position.z = (bot.mesh.position.z / rad) * 38.5;
           bot.stateTimer = 0; // force new target
+          bot.velocity.x = 0;
+          bot.velocity.z = 0;
         }
       } else {
         bot.mesh.position.x = Math.max(-48.5, Math.min(48.5, bot.mesh.position.x));
@@ -1168,11 +1904,26 @@ export default function ThreeGame({
           bot.mesh.position.clone().add(new THREE.Vector3(0.5, bot.height, 0.5))
         );
         if (botBox.intersectsBox(obs.box)) {
-          // Push bot away
-          const pushDir = bot.mesh.position.clone().sub(obs.mesh.position);
-          pushDir.y = 0;
-          pushDir.normalize();
-          bot.mesh.position.addScaledVector(pushDir, 0.15);
+          const obsCenter = new THREE.Vector3();
+          obs.box.getCenter(obsCenter);
+
+          // Overlap depths
+          const overlapX = Math.min(botBox.max.x, obs.box.max.x) - Math.max(botBox.min.x, obs.box.min.x);
+          const overlapZ = Math.min(botBox.max.z, obs.box.max.z) - Math.max(botBox.min.z, obs.box.min.z);
+
+          if (overlapX < overlapZ) {
+            if (bot.mesh.position.x < obsCenter.x) {
+              bot.mesh.position.x -= overlapX + 0.01;
+            } else {
+              bot.mesh.position.x += overlapX + 0.01;
+            }
+          } else {
+            if (bot.mesh.position.z < obsCenter.z) {
+              bot.mesh.position.z -= overlapZ + 0.01;
+            } else {
+              bot.mesh.position.z += overlapZ + 0.01;
+            }
+          }
           bot.stateTimer = 0; // recalculate route
         }
       });
@@ -1203,11 +1954,11 @@ export default function ThreeGame({
   // Main frame updater loop (Physics + Controls + Particles + HUD Sync)
   const updateGame = (delta: number) => {
     const state = stateRef.current;
-    const config = WEAPON_CONFIGS[weaponType];
+    const currentWeaponType = state.weaponType;
+    const config = WEAPON_CONFIGS[currentWeaponType];
 
     // 1. Zoom/Aim Down Sights (ADS) progress animation
     if (state.isAiming) {
-      // AR aim time = 0.7s, Sniper = 1.1s
       const aimSpeed = 1 / config.aimTime;
       state.aimProgress = Math.min(1.0, state.aimProgress + aimSpeed * delta);
     } else {
@@ -1234,7 +1985,7 @@ export default function ThreeGame({
         // Align gun directly centered on the screen for ADS
         // standard hip position is (0.25, -0.22, -0.35). Centered position is (0, -0.15, -0.3)
         // Sniper: Hide model when scoped (aimProgress > 0.95) to clear screen for the black scope lens!
-        if (weaponType === 'SNIPER_RIFLE' && state.aimProgress > 0.95) {
+        if (currentWeaponType === 'SNIPER_RIFLE' && state.aimProgress > 0.95) {
           gunGroupRef.current.visible = false;
         } else {
           gunGroupRef.current.visible = true;
@@ -1290,7 +2041,7 @@ export default function ThreeGame({
 
     // 4. Handle Gun Fire inputs (Left click)
     if (keysRef.current['left_click'] && !state.roundEnded) {
-      if (weaponType === 'ASSAULT_RIFLE') {
+      if (currentWeaponType === 'ASSAULT_RIFLE') {
         // continuous firing
         shootWeapon();
       } else {
@@ -1312,7 +2063,8 @@ export default function ThreeGame({
     }
 
     // 6. Player Movement & Physics (Grounded, Jump, Slide speed)
-    const moveSpeed = state.isSliding ? 14.0 : state.isAiming ? 3.0 : 7.0; // sliding gives high momentum, aiming slows down
+    const moveSpeedMod = config.moveSpeedMod || 1.0;
+    const moveSpeed = (state.isSliding ? 14.0 : state.isAiming ? 3.0 : 7.0) * moveSpeedMod; // sliding gives high momentum, aiming slows down
     
     // Friction/gravity
     if (!state.isGrounded) {
@@ -1343,35 +2095,86 @@ export default function ThreeGame({
       state.playerVelocity.z = wishDir.z * moveSpeed;
     }
 
-    // Update Player position by velocity
-    state.playerPos.x += state.playerVelocity.x * delta;
-    state.playerPos.y += state.playerVelocity.y * delta;
-    state.playerPos.z += state.playerVelocity.z * delta;
+    // --- AXIS-BY-AXIS COLLISION RESOLUTION ---
+    let isGroundedThisFrame = false;
 
-    // Ground check (Floor y = 0, player coordinates reflect eye height)
+    // Helper to compute player's bounding box at a given position
+    const getPlayerBox = (pos: THREE.Vector3, height: number) => {
+      // 0.45 horizontal radius is highly stable for 3D navigation and container entrances
+      return new THREE.Box3(
+        new THREE.Vector3(pos.x - 0.45, pos.y - height, pos.z - 0.45),
+        new THREE.Vector3(pos.x + 0.45, pos.y + 0.4, pos.z + 0.45)
+      );
+    };
+
+    // 1. Move & Resolve X
+    state.playerPos.x += state.playerVelocity.x * delta;
+    obstaclesRef.current.forEach((obs) => {
+      const playerBox = getPlayerBox(state.playerPos, state.playerHeight);
+      if (playerBox.intersectsBox(obs.box)) {
+        const obsCenter = new THREE.Vector3();
+        obs.box.getCenter(obsCenter);
+        const overlapX = Math.min(playerBox.max.x, obs.box.max.x) - Math.max(playerBox.min.x, obs.box.min.x);
+        if (state.playerPos.x < obsCenter.x) {
+          state.playerPos.x -= (overlapX + 0.001);
+        } else {
+          state.playerPos.x += (overlapX + 0.001);
+        }
+        state.playerVelocity.x = 0;
+      }
+    });
+
+    // 2. Move & Resolve Z
+    state.playerPos.z += state.playerVelocity.z * delta;
+    obstaclesRef.current.forEach((obs) => {
+      const playerBox = getPlayerBox(state.playerPos, state.playerHeight);
+      if (playerBox.intersectsBox(obs.box)) {
+        const obsCenter = new THREE.Vector3();
+        obs.box.getCenter(obsCenter);
+        const overlapZ = Math.min(playerBox.max.z, obs.box.max.z) - Math.max(playerBox.min.z, obs.box.min.z);
+        if (state.playerPos.z < obsCenter.z) {
+          state.playerPos.z -= (overlapZ + 0.001);
+        } else {
+          state.playerPos.z += (overlapZ + 0.001);
+        }
+        state.playerVelocity.z = 0;
+      }
+    });
+
+    // 3. Move & Resolve Y
+    state.playerPos.y += state.playerVelocity.y * delta;
+    obstaclesRef.current.forEach((obs) => {
+      const playerBox = getPlayerBox(state.playerPos, state.playerHeight);
+      if (playerBox.intersectsBox(obs.box)) {
+        const obsCenter = new THREE.Vector3();
+        obs.box.getCenter(obsCenter);
+        const overlapY = Math.min(playerBox.max.y, obs.box.max.y) - Math.max(playerBox.min.y, obs.box.min.y);
+        
+        if (state.playerPos.y > obsCenter.y) {
+          // Player is above the obstacle center -> land on top
+          state.playerPos.y += (overlapY + 0.001);
+          state.playerVelocity.y = 0;
+          isGroundedThisFrame = true;
+        } else {
+          // Player is below the obstacle center -> hit head / push down to prevent clipping above
+          state.playerPos.y -= (overlapY + 0.001);
+          state.playerVelocity.y = 0;
+        }
+      }
+    });
+
+    // 4. Floor boundaries & ground check
     const floorY = state.playerHeight;
     if (state.playerPos.y <= floorY) {
       state.playerPos.y = floorY;
       state.playerVelocity.y = 0;
-      state.isGrounded = true;
+      isGroundedThisFrame = true;
     }
 
-    // Obstacles Collisions detection
-    obstaclesRef.current.forEach((obs) => {
-      // Player bounding box (AABB)
-      const playerBox = new THREE.Box3(
-        state.playerPos.clone().add(new THREE.Vector3(-0.6, -state.playerHeight, -0.6)),
-        state.playerPos.clone().add(new THREE.Vector3(0.6, 0.4, 0.6))
-      );
-
-      if (playerBox.intersectsBox(obs.box)) {
-        // Resolve collision: push player away from obstacle
-        const pushDir = state.playerPos.clone().sub(obs.mesh.position);
-        pushDir.y = 0;
-        pushDir.normalize();
-        state.playerPos.addScaledVector(pushDir, 0.25);
-      }
-    });
+    state.isGrounded = isGroundedThisFrame;
+    if (state.isGrounded) {
+      state.jumpCount = 0; // Reset double jump
+    }
 
     // Map Boundaries
     if (mapType === 'ARENA') {
@@ -1436,6 +2239,80 @@ export default function ThreeGame({
           (part.system.material as THREE.PointsMaterial).opacity = 1 - part.age / part.maxAge;
         }
       }
+
+      // 9b. Update Active RPG Rocket Projectiles
+      for (let i = rocketsRef.current.length - 1; i >= 0; i--) {
+        const r = rocketsRef.current[i];
+        
+        const prevPos = r.mesh.position.clone();
+        const movement = r.direction.clone().multiplyScalar(r.speed * delta);
+        r.mesh.position.add(movement);
+        
+        const currentPos = r.mesh.position;
+        const moveDist = movement.length();
+        let hitOccurred = false;
+        const hitPoint = new THREE.Vector3();
+        let hitBotIndex: number | null = null;
+        let hitObject: 'GROUND' | 'OBSTACLE' | 'BOT' | null = null;
+        
+        // Raycast forward along travel segment to check for exact collision
+        const rocketRaycaster = new THREE.Raycaster(prevPos, r.direction.clone().normalize(), 0, moveDist + 0.1);
+        let closestDist = Infinity;
+        
+        // Check obstacles (boxes/walls)
+        const obstacleMeshes = obstaclesRef.current.map(o => o.mesh);
+        const obsIntersects = rocketRaycaster.intersectObjects(obstacleMeshes, true);
+        if (obsIntersects.length > 0) {
+          closestDist = obsIntersects[0].distance;
+          hitPoint.copy(obsIntersects[0].point);
+          hitObject = 'OBSTACLE';
+          hitOccurred = true;
+        }
+        
+        // Check ground plane (y = 0)
+        if (r.direction.y < 0) {
+          const distToGround = -prevPos.y / r.direction.y;
+          if (distToGround >= 0 && distToGround <= moveDist && distToGround < closestDist) {
+            closestDist = distToGround;
+            hitPoint.copy(prevPos).addScaledVector(r.direction, distToGround);
+            hitObject = 'GROUND';
+            hitOccurred = true;
+          }
+        }
+        
+        // Check enemy bots bounding meshes
+        enemiesRef.current.forEach((bot, bIdx) => {
+          if (bot.hp <= 0) return;
+          const botIntersects = rocketRaycaster.intersectObject(bot.mesh, true);
+          if (botIntersects.length > 0) {
+            const first = botIntersects[0];
+            if (first.distance < closestDist) {
+              closestDist = first.distance;
+              hitPoint.copy(first.point);
+              hitBotIndex = bIdx;
+              hitObject = 'BOT';
+              hitOccurred = true;
+            }
+          }
+        });
+        
+        // Maximum rocket range safety cleanup
+        const maxLifeDistance = 150;
+        const distFromPlayer = currentPos.distanceTo(state.playerPos);
+        if (distFromPlayer > maxLifeDistance) {
+          sceneRef.current.remove(r.mesh);
+          rocketsRef.current.splice(i, 1);
+          continue;
+        }
+        
+        if (hitOccurred) {
+          // Explode the rocket!
+          triggerRocketExplosion(hitPoint, hitBotIndex);
+          
+          sceneRef.current.remove(r.mesh);
+          rocketsRef.current.splice(i, 1);
+        }
+      }
     }
 
     // 10. Floating Texts age & position updates
@@ -1463,6 +2340,7 @@ export default function ThreeGame({
       damageFlashActive: state.damageFlashActive,
       isSliding: state.isSliding,
       isSlideCooldown: state.slideCooldown > 0,
+      primaryWeapon: primaryWeaponRef.current,
     });
   };
 

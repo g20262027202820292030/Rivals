@@ -110,7 +110,7 @@ export default function MainMenu({ onStartGame }: MainMenuProps) {
             </div>
           </div>
 
-          <div className="skew-x-[10deg] mt-8">
+          <div className="skew-x-[10deg] mt-8 flex flex-col gap-3">
             <button
               onClick={() => onStartGame(selectedMap)}
               className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 -skew-x-6 hover:skew-x-0 font-display font-black italic text-lg tracking-widest text-white shadow-[0_0_25px_rgba(239,68,68,0.45)] hover:shadow-[0_0_40px_rgba(249,115,22,0.6)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-3 cursor-pointer uppercase"
@@ -118,6 +118,16 @@ export default function MainMenu({ onStartGame }: MainMenuProps) {
               <Play className="w-5 h-5 fill-current animate-pulse" /> 
               <span>전장 진입 / PLAY NOW</span>
             </button>
+
+            <a
+              href="./index_vanilla.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 -skew-x-6 hover:skew-x-0 font-mono text-xs tracking-wider text-neutral-400 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer uppercase text-center"
+            >
+              <Zap className="w-3.5 h-3.5 text-yellow-500 animate-pulse" />
+              <span>오프라인 단독 바닐라 실행 (VANILLA HTML)</span>
+            </a>
           </div>
         </motion.div>
 

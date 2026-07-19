@@ -32,6 +32,7 @@ export default function App() {
     damageFlashActive: false,
     isSliding: false,
     isSlideCooldown: false,
+    primaryWeapon: 'ASSAULT_RIFLE' as WeaponType,
   });
 
   const [isLocked, setIsLocked] = useState(false);
@@ -130,6 +131,12 @@ export default function App() {
             isLocked={isLocked}
             setIsLocked={setIsLocked}
             updateHUD={setHudStats}
+            onWeaponChange={(weapon) => {
+              setGameState((prev) => ({
+                ...prev,
+                playerWeapon: weapon,
+              }));
+            }}
           />
 
           <GameHUD
@@ -138,6 +145,7 @@ export default function App() {
             ammo={hudStats.ammo}
             maxAmmo={hudStats.maxAmmo}
             weaponType={gameState.playerWeapon}
+            primaryWeapon={hudStats.primaryWeapon}
             isAiming={hudStats.isAiming}
             aimProgress={hudStats.aimProgress}
             isReloading={hudStats.isReloading}

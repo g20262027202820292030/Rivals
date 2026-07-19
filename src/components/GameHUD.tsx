@@ -9,6 +9,7 @@ interface GameHUDProps {
   ammo: number;
   maxAmmo: number;
   weaponType: WeaponType;
+  primaryWeapon: WeaponType;
   isAiming: boolean;
   aimProgress: number; // 0 to 1
   isReloading: boolean;
@@ -31,6 +32,7 @@ export default function GameHUD({
   ammo,
   maxAmmo,
   weaponType,
+  primaryWeapon,
   isAiming,
   aimProgress,
   isReloading,
@@ -47,6 +49,8 @@ export default function GameHUD({
 }: GameHUDProps) {
   const hpPercentage = Math.max(0, Math.min(100, (playerHP / maxHP) * 100));
   const weaponConfig = WEAPON_CONFIGS[weaponType];
+
+  const primaryConfig = WEAPON_CONFIGS[primaryWeapon];
 
   const currentSpread = isAiming
     ? weaponConfig.adsSpread
@@ -71,10 +75,10 @@ export default function GameHUD({
 
       {/* 2. Sniper Scope Screen-filling Overlay */}
       {weaponType === 'SNIPER_RIFLE' && aimProgress > 0.95 && (
-        <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
-          {/* Magnified view-port circle */}
+        <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center bg-transparent">
+          {/* Magnified view-port circle with screen-filling black mask via huge box shadow */}
           <div 
-            className="relative rounded-full aspect-square border-4 border-red-600/80 bg-transparent flex items-center justify-center overflow-hidden shadow-[0_0_50px_rgba(239,68,68,0.3)]"
+            className="relative rounded-full aspect-square border-4 border-red-600/80 bg-transparent flex items-center justify-center shadow-[0_0_0_9999px_rgba(0,0,0,1),_0_0_50px_rgba(239,68,68,0.3)]"
             style={{ height: '75vh', width: '75vh' }}
           >
             {/* Scope lines overlay */}
@@ -106,12 +110,6 @@ export default function GameHUD({
               </div>
             </div>
           </div>
-
-          {/* Left and Right side solid panels to ensure it is fully black outside the circle */}
-          <div className="absolute left-0 top-0 h-full w-[calc(50vw-37.5vh)] bg-black"></div>
-          <div className="absolute right-0 top-0 h-full w-[calc(50vw-37.5vh)] bg-black"></div>
-          <div className="absolute top-0 left-[calc(50vw-37.5vh)] h-[calc(50vh-37.5vh)] w-[75vh] bg-black"></div>
-          <div className="absolute bottom-0 left-[calc(50vw-37.5vh)] h-[calc(50vh-37.5vh)] w-[75vh] bg-black"></div>
         </div>
       )}
 
@@ -312,8 +310,31 @@ export default function GameHUD({
       </div>
 
       {/* 8. Bottom Right: Ammo & Reload indicators */}
-      <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3.5 z-10">
+      <div className="absolute bottom-6 right-6 flex flex-col items-end gap-3 z-10">
         
+        {/* Weapon Slots Indicator (1: Primary, 3: Melee) */}
+        <div className="flex gap-2 -skew-x-12">
+          {/* Slot 1: Primary */}
+          <div className={`px-2.5 py-1 rounded-sm border font-mono text-[9px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
+            weaponType !== 'FIST'
+              ? 'bg-red-500/15 text-red-400 border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]'
+              : 'bg-neutral-950/80 text-neutral-500 border-neutral-900'
+          }`}>
+            <span className="bg-neutral-900 border border-neutral-850 text-neutral-300 px-1 rounded-sm text-[8px] font-black">1</span>
+            <span>{primaryConfig.nameKo.toUpperCase()}</span>
+          </div>
+
+          {/* Slot 3: Melee Fist */}
+          <div className={`px-2.5 py-1 rounded-sm border font-mono text-[9px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
+            weaponType === 'FIST'
+              ? 'bg-amber-500/15 text-amber-400 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+              : 'bg-neutral-950/80 text-neutral-500 border-neutral-900'
+          }`}>
+            <span className="bg-neutral-900 border border-neutral-850 text-neutral-300 px-1 rounded-sm text-[8px] font-black">3</span>
+            <span>주먹 (FIST)</span>
+          </div>
+        </div>
+
         {/* Reloading Overlay */}
         <AnimatePresence>
           {isReloading && (
@@ -340,13 +361,21 @@ export default function GameHUD({
               {weaponConfig.nameKo}
             </span>
             <div className="flex items-baseline justify-end gap-1.5">
-              <span className={`text-4xl font-display font-black italic tracking-tighter ${ammo === 0 ? 'text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.7)]' : 'text-neutral-100'}`}>
-                {ammo}
-              </span>
-              <span className="text-neutral-700 text-lg font-mono">/</span>
-              <span className="text-neutral-400 text-sm font-mono font-bold">
-                {maxAmmo}
-              </span>
+              {weaponType === 'FIST' ? (
+                <span className="text-4xl font-display font-black italic tracking-tighter text-neutral-100">
+                  ∞
+                </span>
+              ) : (
+                <>
+                  <span className={`text-4xl font-display font-black italic tracking-tighter ${ammo === 0 ? 'text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.7)]' : 'text-neutral-100'}`}>
+                    {ammo}
+                  </span>
+                  <span className="text-neutral-700 text-lg font-mono">/</span>
+                  <span className="text-neutral-400 text-sm font-mono font-bold">
+                    {maxAmmo}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           
